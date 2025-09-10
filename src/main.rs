@@ -2,12 +2,14 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+mod backup;
 mod config;
 mod directory;
+
 // Rust program to backup files in your directories
 #[derive(Parser)]
 #[command(name = "RustBackup")]
-#[command(version = "0.1")]
+#[command(version = "0.2")]
 #[command(about = "Backup files in your directories", long_about = None)]
 struct Cli {
     /// Directory you want to back up
@@ -18,12 +20,13 @@ struct Cli {
     #[arg(short, long, value_name = "DIR")]
     dest_path: Option<PathBuf>,
 
-    // /// Sets a custom config file
-    // #[arg(short, long, value_name = "DIR")]
-    // config_path: Option<PathBuf>,
-    /// Apply edition to config in command to config file
+    /// Sets a custom config file
+    #[arg(short, long, value_name = "FILE")]
+    config_path: Option<PathBuf>,
+
+    /// Update config file
     #[arg(short, long)]
-    edit_config: bool,
+    update_config: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -39,26 +42,28 @@ enum Commands {
     },
 }
 
-fn backup_files() {
-    // Placeholder for backup logic
-    println!("Backing up files...");
-}
-
 fn main() {
     let cli = Cli::parse();
 
-    let mut config = match config::read_config() {
+    let mut config_file = match config::check_config_file(&cli.config_path) {
         Ok(cfg) => cfg,
         Err(_) => {
             std::process::exit(1);
         }
     };
 
-    let (_source_dir, _dest_dir) = match directory::read_directories(
+    let mut config = match config::read_config(&mut config_file) {
+        Ok(cfg) => cfg,
+        Err(_) => {
+            std::process::exit(1);
+        }
+    };
+
+    let (source_path, dest_path) = match directory::check_directories(
         &mut config,
         &cli.source_path,
         &cli.dest_path,
-        &cli.edit_config,
+        &cli.update_config,
     ) {
         Ok((s, d)) => (s, d),
         Err(_) => {
@@ -66,7 +71,16 @@ fn main() {
         }
     };
 
-    backup_files();
+    match backup::backup_files(&source_path, &dest_path) {
+        Ok(_) => {}
+        Err(_) => {
+            std::process::exit(1);
+        }
+    }
+
+    if cli.update_config {
+        config::update_config_file(&mut config_file, &config);
+    }
 
     match &cli.command {
         Some(Commands::Debug { list }) => {
