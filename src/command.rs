@@ -3,7 +3,7 @@ use crate::*;
 // Rust program to backup files in your directories
 #[derive(Parser)]
 #[command(name = "babycancer")]
-#[command(version = "0.2")]
+#[command(version = "0.3")]
 #[command(override_usage = "[COMMAND] [OPTIONS]")]
 #[command(about = "Backup files in your directories", long_about = None)]
 pub struct Args {

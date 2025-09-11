@@ -24,6 +24,10 @@ pub struct ConfigArgs {
     /// Set a custom file pattern
     #[arg(short, long, value_name = "REGEX")]
     pattern: Option<String>,
+
+    /// Output config file content
+    #[arg(short, long)]
+    output: bool,
 }
 
 fn initialize_config(file: &mut File) {
@@ -38,7 +42,7 @@ fn initialize_config(file: &mut File) {
             .join(".config/babycancer/dest")
             .to_string_lossy()
             .to_string(),
-        pattern: "*".to_string(),
+        pattern: ".*".to_string(),
     };
 
     let toml_config = toml::to_string(&config).unwrap();
@@ -46,13 +50,10 @@ fn initialize_config(file: &mut File) {
     file.seek(std::io::SeekFrom::Start(0)).unwrap();
 }
 
-fn read_config_file(config_path: &Option<PathBuf>) -> Result<File, std::io::Error> {
+fn check_config_file(config_path: &Option<PathBuf>) -> Result<PathBuf, std::io::Error> {
     if let Some(path) = config_path.as_deref() {
         match OpenOptions::new().read(true).write(true).open(path) {
-            Ok(file) => {
-                println!("Configuration file read at {}", path.display());
-                Ok(file)
-            }
+            Ok(_) => Ok(path.to_path_buf()),
             Err(err) => {
                 eprintln!("Cannot open {}: {}", path.display(), err);
                 Err(err)
@@ -64,10 +65,9 @@ fn read_config_file(config_path: &Option<PathBuf>) -> Result<File, std::io::Erro
             .join(".config/rustbackup/config.toml");
 
         match OpenOptions::new().read(true).write(true).open(path.clone()) {
-            Ok(file) => {
+            Ok(_) => {
                 // Config file exists, read and parse it
-                println!("Configuration file read at {}", path.display());
-                Ok(file)
+                Ok(path)
             }
             Err(_) => {
                 // Config file does not exist, create directories and initialize config
@@ -86,7 +86,7 @@ fn read_config_file(config_path: &Option<PathBuf>) -> Result<File, std::io::Erro
                 })?;
                 initialize_config(&mut file);
                 println!("Configuration file created at {}", path.display());
-                Ok(file)
+                Ok(path)
             }
         }
     }
@@ -95,29 +95,51 @@ fn read_config_file(config_path: &Option<PathBuf>) -> Result<File, std::io::Erro
 fn update_config(config: &mut Config, args: &ConfigArgs) {
     if let Some(path) = args.source_path.as_deref() {
         config.source_path = path.to_string_lossy().to_string();
+        println!("Source directory set to {}", config.source_path);
     }
     if let Some(path) = args.dest_path.as_deref() {
         config.dest_path = path.to_string_lossy().to_string();
+        println!("Destination directory set to {}", config.dest_path);
     }
     if let Some(pattern) = args.pattern.as_deref() {
         config.pattern = pattern.to_string();
+        println!("File pattern set to {}", config.pattern);
     }
 }
 
-fn update_config_file(config_file: &mut File, config: &Config) {
+fn update_config_file(path: &Path, config: &Config) {
     let toml_config = toml::to_string(config).unwrap();
-    config_file.set_len(0).unwrap();
-    config_file.write_all(toml_config.as_bytes()).unwrap();
-    config_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|err| {
+            eprintln!("Cannot open {}: {}", path.display(), err);
+            err
+        }).unwrap();
+
+    file.set_len(0).unwrap();
+    file.write_all(toml_config.as_bytes()).unwrap();
+    file.seek(std::io::SeekFrom::Start(0)).unwrap();
 }
 
-fn read_config(config_file: &mut File) -> Result<Config, std::io::Error> {
+fn read_config(path: &PathBuf) -> Result<Config, std::io::Error> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path.clone())
+        .map_err(|err| {
+            eprintln!("Cannot open {}: {}", path.display(), err);
+            err
+        })?;
     let mut content = String::new();
-    config_file.read_to_string(&mut content).map_err(|err| {
+
+    file.read_to_string(&mut content).map_err(|err| {
         eprintln!("Failed to read {:?}: {}", content, err);
         err
     })?;
-    config_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+    println!("Configuration file read at {}", path.display());
+    file.seek(std::io::SeekFrom::Start(0)).unwrap();
 
     toml::from_str(&content).map_err(|err| {
         eprintln!("Failed to parse config {:?}: {}", content, err);
@@ -125,27 +147,50 @@ fn read_config(config_file: &mut File) -> Result<Config, std::io::Error> {
     })
 }
 
+fn output_config(path: &PathBuf) {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path.clone())
+        .map_err(|err| {
+            eprintln!("Cannot open {}: {}", path.display(), err);
+            err
+        }).unwrap();
+    let mut content = String::new();
+
+    file.read_to_string(&mut content).map_err(|err| {
+        eprintln!("Failed to read {:?}: {}", content, err);
+        err
+    }).unwrap();
+    println!("Configuration file at {}:\n{}", path.display(), content);
+    file.seek(std::io::SeekFrom::Start(0)).unwrap();
+}
+
 pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Error> {
-    let mut config_file = read_config_file(config_path)?;
+    let mut config_file = check_config_file(config_path)?;
     read_config(&mut config_file)
 }
 
 pub fn command_config(args: &ConfigArgs) {
-    let mut config_file = match read_config_file(&args.config_path) {
+    let config_path = match check_config_file(&args.config_path) {
         Ok(cfg) => cfg,
         Err(_) => {
-            std::process::exit(1);
+            return ;
         }
     };
 
-    let mut config = match read_config(&mut config_file) {
+    let mut config = match read_config(&config_path) {
         Ok(cfg) => cfg,
         Err(_) => {
-            std::process::exit(1);
+            return ;
         }
     };
 
     update_config(&mut config, &args);
 
-    update_config_file(&mut config_file, &config);
+    update_config_file(&config_path, &config);
+
+    if args.output {
+        output_config(&config_path);
+    }
 }

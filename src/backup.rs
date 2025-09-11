@@ -31,7 +31,7 @@ fn copy_dir_recursive(
             let re = Regex::new(pattern).unwrap();
             if re.is_match(entry.file_name().to_str().unwrap()) {
                 fs::copy(&path, &dest_path)?;
-				println!("Copied {:?} to {:?}", path, dest_path);
+                println!("Copied {:?} to {:?}", path, dest_path);
             }
         }
     }
@@ -165,14 +165,14 @@ pub fn command_backup(args: &BackupArgs) {
         match check_directories(&mut config, &args.source_path, &args.dest_path) {
             Ok((s, d)) => (s, d),
             Err(_) => {
-                std::process::exit(1);
+                return;
             }
         };
 
     match backup_files(&source_path, &dest_path, &config.pattern) {
         Ok(_) => {}
         Err(_) => {
-            std::process::exit(1);
+            return;
         }
     }
 }
