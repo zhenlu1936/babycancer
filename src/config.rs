@@ -64,6 +64,45 @@ pub struct ConfigArgs {
     reset: bool,
 }
 
+#[derive(Parser)]
+pub struct ResetArgs {
+    /// Reset a custom config file
+    #[arg(short, long)]
+    config_path: Option<PathBuf>,
+
+    /// Directory you want to back up
+    #[arg(short, long)]
+    source_path: bool,
+
+    /// Reset a custom backup destination
+    #[arg(short, long)]
+    dest_path: bool,
+
+    /// Reset a custom file pattern
+    #[arg(short, long)]
+    file_name: bool,
+
+    /// Reset a custom path
+    #[arg(long)]
+    file_path: bool,
+
+    /// Reset a custom date that the file was modified after
+    #[arg(long)]
+    date: bool,
+
+    /// Reset a custom size that the file is smaller than
+    #[arg(long)]
+    size: bool,
+
+    /// Reset a custom user
+    #[arg(short, long)]
+    user: bool,
+
+    /// Reset all configurations
+    #[arg(short, long)]
+    all: bool,
+}
+
 fn initialize_config(path: &Path) {
     let _ = std::fs::create_dir_all(path.parent().unwrap()).map_err(|err| {
         eprintln!(
@@ -238,26 +277,14 @@ fn update_config_file(path: &Path, config: &Config) {
     doc["file_config"] = Item::Table(file_table);
 
     file.write_all(doc.to_string().as_bytes()).unwrap();
-    file.seek(std::io::SeekFrom::Start(0)).unwrap();
 }
 
 fn read_config(path: &PathBuf) -> Result<Config, std::io::Error> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path.clone())
-        .map_err(|err| {
-            eprintln!("Cannot open {}: {}", path.display(), err);
-            err
-        })?;
-    let mut content = String::new();
-
-    file.read_to_string(&mut content).map_err(|err| {
-        eprintln!("Failed to read {:?}: {}", content, err);
+    let content = fs::read_to_string(path).map_err(|err| {
+        eprintln!("Failed to read {}: {}", path.display(), err);
         err
     })?;
     println!("Configuration file read at {}", path.display());
-    file.seek(std::io::SeekFrom::Start(0)).unwrap();
 
     let config: Config = toml::de::from_str(&content).map_err(|err| {
         eprintln!("Failed to parse config {:?}: {}", content, err);
@@ -267,26 +294,19 @@ fn read_config(path: &PathBuf) -> Result<Config, std::io::Error> {
     Ok(config)
 }
 
-fn output_config(path: &PathBuf) {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path.clone())
-        .map_err(|err| {
-            eprintln!("Cannot open {}: {}", path.display(), err);
-            err
-        })
-        .unwrap();
-    let mut content = String::new();
+fn output_config(path: &PathBuf) -> Result<(), std::io::Error> {
+    let content = fs::read_to_string(path).map_err(|err| {
+        eprintln!("Failed to read {}: {}", path.display(), err);
+        err
+    })?;
 
-    file.read_to_string(&mut content)
-        .map_err(|err| {
-            eprintln!("Failed to read {:?}: {}", content, err);
-            err
-        })
-        .unwrap();
-    println!("Configuration file at {}:\n{}", path.display(), content);
-    file.seek(std::io::SeekFrom::Start(0)).unwrap();
+    println!(
+        "Configuration file read at {}:\n{}",
+        path.display(),
+        content
+    );
+
+    Ok(())
 }
 
 pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Error> {
@@ -294,31 +314,80 @@ pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Erro
     read_config(&mut config_file)
 }
 
-pub fn command_config(args: &ConfigArgs) {
-    let config_path = match check_config_file(&args.config_path) {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            return;
-        }
-    };
+pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
+    let config_path = check_config_file(&args.config_path)?;
 
-    let mut config = match read_config(&config_path) {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            return;
-        }
-    };
+    let mut config = read_config(&config_path)?;
 
     update_config(&mut config, &args);
 
     update_config_file(&config_path, &config);
 
-    if args.reset {
-        initialize_config(&config_path);
-        println!("Configuration file reset at {}", config_path.display());
+    if args.output {
+        output_config(&config_path)?;
     }
 
-    if args.output {
-        output_config(&config_path);
+    Ok(())
+}
+
+fn reset_config(config: &mut Config, args: &ResetArgs) {
+    let path_config = &mut config.path_config;
+    let file_config = &mut config.file_config;
+
+    if args.source_path || args.all {
+        path_config.source_path = dirs::home_dir()
+            .unwrap()
+            .join(".config/babycancer/source")
+            .to_string_lossy()
+            .to_string();
+        println!("Source directory reset to {}", path_config.source_path);
     }
+
+    if args.dest_path || args.all {
+        path_config.dest_path = dirs::home_dir()
+            .unwrap()
+            .join(".config/babycancer/dest")
+            .to_string_lossy()
+            .to_string();
+        println!("Destination directory set to {}", path_config.dest_path);
+    }
+
+    if args.file_path || args.all {
+        file_config.file_path = None;
+        println!("File path reset");
+    }
+
+    if args.file_name || args.all {
+        file_config.file_name = None;
+        println!("File name reset");
+    }
+
+    if args.date || args.all {
+        file_config.date = None;
+        println!("Date reset");
+    }
+
+    if args.size || args.all {
+        file_config.size = None;
+        println!("Size reset");
+    }
+
+    if args.user || args.all {
+        file_config.user = None;
+        println!("User reset");
+    }
+}
+
+pub fn command_reset(args: &ResetArgs) -> Result<(), std::io::Error> {
+    let config_path = check_config_file(&args.config_path)?;
+
+    let mut config = read_config(&config_path)?;
+
+    reset_config(&mut config, &args);
+
+    update_config_file(&config_path, &config);
+
+    println!("Configuration file reset at {}", config_path.display());
+
+    Ok(())
 }

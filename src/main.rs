@@ -26,9 +26,20 @@ fn main() {
                 break;
             }
 
-            Some(Commands::Backup(args)) => backup::command_backup(args),
+            Some(Commands::Backup(args)) => backup::command_backup(args)
+                .unwrap_or_else(|err| eprintln!("Backup command failed: {}", err)),
 
-            Some(Commands::Config(args)) => config::command_config(args),
+            Some(Commands::Config(args)) => config::command_config(args)
+                .unwrap_or_else(|err| eprintln!("Config command failed: {}", err)),
+
+            Some(Commands::Reset(args)) => config::command_reset(args)
+                .unwrap_or_else(|err| eprintln!("Reset command failed: {}", err)),
+
+            Some(Commands::Timer(args)) => backup::command_timer(args)
+                .unwrap_or_else(|err| eprintln!("Timer command failed: {}", err)),
+
+            Some(Commands::Realtime(args)) => backup::command_realtime(args)
+                .unwrap_or_else(|err| eprintln!("Realtime command failed: {}", err)),
 
             None => {}
         }

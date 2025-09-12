@@ -6,6 +6,7 @@ pub use chrono::NaiveDate;
 pub use clap::{Parser, Subcommand};
 pub use command::{Args, Commands};
 pub use config::Config;
+pub use notify::Watcher;
 pub use regex::Regex;
 pub use serde::{Deserialize, Serialize};
 pub use std::fs;

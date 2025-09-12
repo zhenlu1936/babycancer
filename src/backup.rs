@@ -15,11 +15,37 @@ pub struct BackupArgs {
     config_path: Option<PathBuf>,
 }
 
+#[derive(Parser)]
+pub struct TimerArgs {
+    /// Interval in seconds to run the backup command
+    #[arg(short, long, value_name = "SECONDS", default_value_t = 3600)]
+    interval: u64,
+
+    /// Set a custom config file
+    #[arg(short, long, value_name = "FILE")]
+    config_path: Option<PathBuf>,
+}
+
+#[derive(Parser)]
+pub struct RealtimeArgs {
+    /// Set a custom config file
+    #[arg(short, long, value_name = "FILE")]
+    config_path: Option<PathBuf>,
+}
+
 fn check_file_properties(
     root_path: &Path,
     file_path: &Path,
     file_config: &config::FileConfig,
 ) -> bool {
+    let metadata = match fs::metadata(&file_path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            eprintln!("Failed to get metadata for {:?}", &file_path);
+            return false;
+        }
+    };
+
     if let Some(ref config_path) = file_config.file_path {
         if !(file_path).starts_with(root_path.join(config_path)) {
             return false;
@@ -36,7 +62,7 @@ fn check_file_properties(
     if let Some(ref date) = file_config.date {
         if !date.is_empty() {
             let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
-            let file_date = file_path.metadata().unwrap().modified().unwrap();
+            let file_date = metadata.modified().unwrap();
             let file_date = chrono::DateTime::<chrono::Local>::from(file_date)
                 .naive_local()
                 .date();
@@ -48,7 +74,7 @@ fn check_file_properties(
 
     if let Some(size) = file_config.size {
         if size != 0 {
-            let file_size = file_path.metadata().unwrap().len() as i64;
+            let file_size = metadata.len() as i64;
             if file_size < size {
                 return false;
             }
@@ -56,14 +82,11 @@ fn check_file_properties(
     }
 
     if let Some(ref user) = file_config.user {
-        let Ok(metadata) = fs::metadata(file_path) else {
-            return false;
-        };
-        let owner = metadata.uid();
-        if owner.to_string() != *user {
-            return false;
-        } else {
-            return false;
+        if !user.is_empty() {
+            let owner = metadata.uid();
+            if owner.to_string() != *user {
+                return false;
+            }
         }
     }
 
@@ -92,7 +115,27 @@ fn copy_dir_recursive(
             }
         } else {
             if check_file_properties(&root_path, &entry_path, file_properties) {
-                fs::copy(&entry_path, &dest_path)?;
+                let metadata = match fs::metadata(&entry_path) {
+                    Ok(metadata) => metadata,
+                    Err(_) => {
+                        eprintln!("Failed to get metadata for {:?}", &entry_path);
+                        continue;
+                    }
+                };
+                if metadata.file_type().is_symlink() {
+                    eprintln!("Skipping symbolic link: {:?}", &entry_path);
+                } else {
+                    match fs::copy(&entry_path, &dest_path) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to copy {:?} to {:?}: {}",
+                                &entry_path, &dest_path, e
+                            );
+                            continue;
+                        }
+                    }
+                }
                 println!("Copied {:?} to {:?}", &entry_path, &dest_path);
             }
         }
@@ -216,26 +259,79 @@ fn check_directories(
     Ok((s_path, d_path))
 }
 
-pub fn command_backup(args: &BackupArgs) {
-    let mut config = match config::get_config(&args.config_path) {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            std::process::exit(1);
-        }
-    };
+pub fn command_backup(args: &BackupArgs) -> Result<(), std::io::Error> {
+    let mut config = config::get_config(&args.config_path)?;
 
     let (source_path, dest_path) =
-        match check_directories(&mut config, &args.source_path, &args.dest_path) {
-            Ok((s, d)) => (s, d),
-            Err(_) => {
-                return;
-            }
-        };
+        check_directories(&mut config, &args.source_path, &args.dest_path)?;
 
-    match backup_files(&source_path, &dest_path, &config.file_config) {
-        Ok(_) => {}
-        Err(_) => {
-            return;
+    backup_files(&source_path, &dest_path, &config.file_config)?;
+
+    Ok(())
+}
+
+pub fn command_timer(args: &TimerArgs) -> Result<(), std::io::Error> {
+    let interval = args.interval;
+    if interval == 0 {
+        eprintln!("Interval must be greater than 0.");
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Interval must be greater than 0",
+        ));
+    }
+
+    println!("Starting timer with interval of {} seconds...", interval);
+    loop {
+        let start = std::time::Instant::now();
+        println!("Running timer backup...");
+
+        let mut config = config::get_config(&args.config_path)?;
+
+        let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
+
+        if let Err(err) = backup_files(&source_path, &dest_path, &config.file_config) {
+            eprintln!("Backup command failed: {}", err);
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed.as_secs() < interval {
+            let sleep_duration = std::time::Duration::from_secs(interval - elapsed.as_secs());
+            std::thread::sleep(sleep_duration);
+        }
+    }
+}
+
+pub fn command_realtime(args: &RealtimeArgs) -> Result<(), std::io::Error> {
+    let mut config = config::get_config(&args.config_path)?;
+
+    let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
+
+    println!("Starting real-time backup...");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| match res {
+            Ok(event) => {
+                tx.send(event).unwrap();
+            }
+            Err(e) => eprintln!("watch error: {:?}", e),
+        })
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    watcher
+        .watch(&source_path, notify::RecursiveMode::Recursive)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    loop {
+        match rx.recv() {
+            Ok(event) => {
+                println!("Change detected: {:?}", event);
+                if let Err(err) = backup_files(&source_path, &dest_path, &config.file_config) {
+                    eprintln!("Backup command failed: {}", err);
+                }
+            }
+            Err(e) => eprintln!("recv error: {:?}", e),
         }
     }
 }
