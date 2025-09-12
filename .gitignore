@@ -23,4 +23,4 @@ target
 # hjj's own
 test.*
 test*
-./*
+.DS_Store
