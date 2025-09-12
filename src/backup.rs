@@ -38,7 +38,7 @@ fn check_file_properties(
     file_path: &Path,
     file_config: &config::FileConfig,
 ) -> bool {
-    let metadata = match fs::metadata(&file_path) {
+    let metadata = match fs::symlink_metadata(&file_path) {
         Ok(metadata) => metadata,
         Err(_) => {
             eprintln!("Failed to get metadata for {:?}", &file_path);
@@ -115,18 +115,66 @@ fn copy_dir_recursive(
             }
         } else {
             if check_file_properties(&root_path, &entry_path, file_properties) {
-                let metadata = match fs::metadata(&entry_path) {
+                let metadata = match fs::symlink_metadata(&entry_path) {
                     Ok(metadata) => metadata,
                     Err(_) => {
                         eprintln!("Failed to get metadata for {:?}", &entry_path);
                         continue;
                     }
                 };
-                if metadata.file_type().is_symlink() {
-                    eprintln!("Skipping symbolic link: {:?}", &entry_path);
+                if metadata.file_type().is_symlink() { // xxx: cannot remove symlink?
+                    let target = fs::read_link(&entry_path)?;
+                    if dest_path.exists() {
+                        fs::remove_file(&dest_path)?;
+                    }
+                    if let Err(e) = std::os::unix::fs::symlink(&target, &dest_path) {
+                        eprintln!(
+                            "Failed to create symlink from {:?} to {:?}: {}",
+                            &target, &dest_path, e
+                        );
+                        continue;
+                    }
+                    println!("Copied symlink {:?} to {:?}", &entry_path, &dest_path);
+                } else if metadata.file_type().is_fifo() {
+                    if dest_path.exists() {
+                        fs::remove_file(&dest_path)?;
+                    }
+                    if let Err(e) = nix::unistd::mkfifo(&dest_path, nix::sys::stat::Mode::S_IRWXU) {
+                        eprintln!("Failed to create FIFO {:?}: {}", &dest_path, e);
+                        continue;
+                    }
+                    println!("Copied FIFO {:?} to {:?}", &entry_path, &dest_path);
+                } else if metadata.file_type().is_char_device() {
+                    if dest_path.exists() {
+                        fs::remove_file(&dest_path)?;
+                    }
+                    mknod(
+                        &dest_path,
+                        nix::sys::stat::SFlag::S_IFCHR,
+                        nix::sys::stat::Mode::from_bits_truncate(
+                            metadata.mode().try_into().unwrap(),
+                        ),
+                        metadata.rdev() as i32,
+                    )?;
+                    println!("Copied char device {:?} to {:?}", &entry_path, &dest_path);
+                } else if metadata.file_type().is_block_device() {
+                    if dest_path.exists() {
+                        fs::remove_file(&dest_path)?;
+                    }
+                    mknod(
+                        &dest_path,
+                        nix::sys::stat::SFlag::S_IFBLK,
+                        nix::sys::stat::Mode::from_bits_truncate(
+                            metadata.mode().try_into().unwrap(),
+                        ),
+                        metadata.rdev() as i32,
+                    )?;
+                    println!("Copied block device {:?} to {:?}", &entry_path, &dest_path);
                 } else {
                     match fs::copy(&entry_path, &dest_path) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            println!("Copied {:?} to {:?}", &entry_path, &dest_path);
+                        }
                         Err(e) => {
                             eprintln!(
                                 "Failed to copy {:?} to {:?}: {}",
@@ -136,7 +184,6 @@ fn copy_dir_recursive(
                         }
                     }
                 }
-                println!("Copied {:?} to {:?}", &entry_path, &dest_path);
             }
         }
     }
