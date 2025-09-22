@@ -2,35 +2,17 @@ use crate::*;
 
 #[derive(Parser)]
 pub struct BackupArgs {
-    /// Directory you want to back up
-    #[arg(short, long, value_name = "DIR")]
-    source_path: Option<PathBuf>,
-
-    /// Set a custom backup destination
-    #[arg(short, long, value_name = "DIR")]
-    dest_path: Option<PathBuf>,
-
     /// Set a custom config file
     #[arg(short, long, value_name = "FILE")]
     config_path: Option<PathBuf>,
-}
 
-#[derive(Parser)]
-pub struct TimedBackupArgs {
-    /// Interval in seconds to run the backup command
-    #[arg(short, long, value_name = "SECONDS", default_value_t = 3600)]
-    interval: u64,
+    /// Backup files in scheduled intervals
+    #[arg(short, long)]
+    interval: Option<u64>,
 
-    /// Set a custom config file
-    #[arg(short, long, value_name = "FILE")]
-    config_path: Option<PathBuf>,
-}
-
-#[derive(Parser)]
-pub struct RealtimeBackupArgs {
-    /// Set a custom config file
-    #[arg(short, long, value_name = "FILE")]
-    config_path: Option<PathBuf>,
+    /// Backup files in real-time when changes are detected
+    #[arg(short, long)]
+    realtime: bool,
 }
 
 fn check_file_properties(
@@ -84,7 +66,8 @@ fn check_file_properties(
     if let Some(ref user_name) = file_config.user {
         if !user_name.is_empty() {
             let owner_uid = metadata.uid();
-            let owner_name = get_user_by_uid(owner_uid).map(|u| u.name().to_string_lossy().into_owned());
+            let owner_name =
+                get_user_by_uid(owner_uid).map(|u| u.name().to_string_lossy().into_owned());
             if owner_name != Some(user_name.clone()) {
                 return false;
             }
@@ -98,7 +81,7 @@ fn copy_dir_recursive(
     root_path: &Path,
     source_path: &Path,
     dest_path: &Path,
-    file_properties: &config::FileConfig,
+    file_config: &config::FileConfig,
 ) -> Result<(), std::io::Error> {
     for entry in fs::read_dir(source_path)? {
         let entry = entry?;
@@ -107,7 +90,7 @@ fn copy_dir_recursive(
 
         if entry_path.is_dir() {
             fs::create_dir_all(&dest_path)?;
-            copy_dir_recursive(&root_path, &entry_path, &dest_path, file_properties)?;
+            copy_dir_recursive(&root_path, &entry_path, &dest_path, file_config)?;
             if fs::read_dir(&dest_path)
                 .map(|mut entries| entries.next().is_none())
                 .unwrap_or(false)
@@ -115,7 +98,7 @@ fn copy_dir_recursive(
                 fs::remove_dir(dest_path)?;
             }
         } else {
-            if check_file_properties(&root_path, &entry_path, file_properties) {
+            if check_file_properties(&root_path, &entry_path, file_config) {
                 let metadata = match fs::symlink_metadata(&entry_path) {
                     Ok(metadata) => metadata,
                     Err(_) => {
@@ -123,7 +106,8 @@ fn copy_dir_recursive(
                         continue;
                     }
                 };
-                if metadata.file_type().is_symlink() { // xxx: cannot remove symlink?
+                if metadata.file_type().is_symlink() {
+                    // xxx: cannot remove symlink?
                     let target = fs::read_link(&entry_path)?;
                     if dest_path.exists() {
                         fs::remove_file(&dest_path)?;
@@ -194,132 +178,75 @@ fn copy_dir_recursive(
 fn backup_files(
     source_path: &PathBuf,
     dest_path: &PathBuf,
-    file_properties: &config::FileConfig,
+    file_config: &config::FileConfig,
 ) -> Result<(), std::io::Error> {
     println!("Backing up files...");
-    copy_dir_recursive(source_path, source_path, dest_path, file_properties)?;
+    copy_dir_recursive(source_path, source_path, dest_path, file_config)?;
     println!("Backup completed successfully.");
     Ok(())
 }
 
-fn get_source_directory(
-    source_path: &Option<PathBuf>,
-    config: &mut Config,
-) -> Result<PathBuf, std::io::Error> {
-    if let Some(path) = source_path.as_deref() {
-        println!("Source directory got at {}", path.display());
-
-        if path.exists() && path.is_dir() {
-            Ok(path.to_path_buf())
-        } else {
-            eprintln!(
-                "Source directory {} does not exist or is not a directory.",
-                path.display()
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Source directory not found or invalid",
-            ))
-        }
+fn get_source_directory(config: &mut Config) -> Result<PathBuf, std::io::Error> {
+    println!(
+        "Source directory got from config at {}",
+        config.path_config.source_path
+    );
+    let path = Path::new(&config.path_config.source_path);
+    if path.exists() && path.is_dir() {
+        Ok(path.to_path_buf())
     } else {
-        println!(
-            "Source directory got from config at {}",
-            config.path_config.source_path
+        eprintln!(
+            "Source directory {} does not exist or is not a directory.",
+            path.display()
         );
-        let path = Path::new(&config.path_config.source_path);
-        if path.exists() && path.is_dir() {
-            Ok(path.to_path_buf())
-        } else {
-            eprintln!(
-                "Source directory {} does not exist or is not a directory.",
-                path.display()
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Source directory not found or invalid",
-            ))
-        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Source directory not found or invalid",
+        ))
     }
 }
 
-fn get_dest_directory(
-    dest_path: &Option<PathBuf>,
-    config: &mut Config,
-) -> Result<PathBuf, std::io::Error> {
-    if let Some(path) = dest_path.as_deref() {
-        println!("Destination directory got at {}", path.display());
-
-        match fs::read_dir(path) {
-            Ok(entries) => {
-                if entries.count() != 0 {
-                    eprintln!(
-                        "Warnning: Destination directory {} is not empty.",
-                        path.display()
-                    );
-                }
-                Ok(path.to_path_buf())
-            }
-            Err(_) => {
-                if let Err(err) = fs::create_dir_all(path) {
-                    eprintln!("Cannot create {}: {}", path.display(), err);
-                    return Err(err);
-                }
-                Ok(path.to_path_buf())
-            }
-        }
+fn get_dest_directory(config: &mut Config) -> Result<PathBuf, std::io::Error> {
+    println!(
+        "Destination directory got from config at {}",
+        config.path_config.dest_path
+    );
+    let path = Path::new(&config.path_config.dest_path);
+    if path.exists() && path.is_dir() {
+        Ok(path.to_path_buf())
     } else {
-        println!(
-            "Destination directory got from config at {}",
-            config.path_config.dest_path
-        );
-        let path = Path::new(&config.path_config.dest_path);
-        if path.exists() && path.is_dir() {
-            Ok(path.to_path_buf())
-        } else {
-            if !path.exists() {
-                if let Err(err) = fs::create_dir_all(path) {
-                    eprintln!("Cannot create {}: {}", path.display(), err);
-                    return Err(err);
-                }
-                return Ok(path.to_path_buf());
+        if !path.exists() {
+            if let Err(err) = fs::create_dir_all(path) {
+                eprintln!("Cannot create {}: {}", path.display(), err);
+                return Err(err);
             }
-            eprintln!(
-                "Destination directory {} is not a directory.",
-                path.display()
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Destination directory invalid",
-            ))
+            return Ok(path.to_path_buf());
         }
+        eprintln!(
+            "Destination directory {} is not a directory.",
+            path.display()
+        );
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Destination directory invalid",
+        ))
     }
 }
 
-fn check_directories(
-    config: &mut Config,
-    source_path: &Option<PathBuf>,
-    dest_path: &Option<PathBuf>,
-) -> Result<(PathBuf, PathBuf), std::io::Error> {
-    let s_path = get_source_directory(source_path, config)?;
-    let d_path = get_dest_directory(dest_path, config)?;
+fn check_directories(config: &mut Config) -> Result<(PathBuf, PathBuf), std::io::Error> {
+    let source_path = get_source_directory(config)?;
+    let dest_path = get_dest_directory(config)?;
 
     println!("Directories read successfully.");
-    Ok((s_path, d_path))
+    Ok((source_path, dest_path))
 }
 
-pub fn command_backup(args: &BackupArgs) -> Result<(), std::io::Error> {
-    let mut config = config::get_config(&args.config_path)?;
-
-    let (source_path, dest_path) =
-        check_directories(&mut config, &args.source_path, &args.dest_path)?;
-
-    backup_files(&source_path, &dest_path, &config.file_config)?;
-
-    Ok(())
-}
-
-pub fn command_timed_backup(args: &TimedBackupArgs) -> Result<(), std::io::Error> {
-    let interval = args.interval;
+fn timed_backup(
+    source_path: &PathBuf,
+    dest_path: &PathBuf,
+    file_config: &config::FileConfig,
+    interval: u64,
+) -> Result<(), std::io::Error> {
     if interval == 0 {
         eprintln!("Interval must be greater than 0.");
         return Err(std::io::Error::new(
@@ -328,15 +255,12 @@ pub fn command_timed_backup(args: &TimedBackupArgs) -> Result<(), std::io::Error
         ));
     }
 
-    let mut config = config::get_config(&args.config_path)?;
-    let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
-
     println!("Starting timer with interval of {} seconds...", interval);
     loop {
         let start = std::time::Instant::now();
         println!("Running timer backup...");
 
-        if let Err(err) = backup_files(&source_path, &dest_path, &config.file_config) {
+        if let Err(err) = backup_files(&source_path, &dest_path, file_config) {
             eprintln!("Backup command failed: {}", err);
         }
 
@@ -348,11 +272,11 @@ pub fn command_timed_backup(args: &TimedBackupArgs) -> Result<(), std::io::Error
     }
 }
 
-pub fn command_realtime_backup(args: &RealtimeBackupArgs) -> Result<(), std::io::Error> {
-    let mut config = config::get_config(&args.config_path)?;
-
-    let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
-
+fn realtime_backup(
+    source_path: &PathBuf,
+    dest_path: &PathBuf,
+    file_config: &config::FileConfig,
+) -> Result<(), std::io::Error> {
     println!("Starting real-time backup...");
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -374,11 +298,25 @@ pub fn command_realtime_backup(args: &RealtimeBackupArgs) -> Result<(), std::io:
         match rx.recv() {
             Ok(event) => {
                 println!("Change detected: {:?}", event);
-                if let Err(err) = backup_files(&source_path, &dest_path, &config.file_config) {
+                if let Err(err) = backup_files(&source_path, &dest_path, file_config) {
                     eprintln!("Backup command failed: {}", err);
                 }
             }
             Err(e) => eprintln!("recv error: {:?}", e),
         }
+    }
+}
+
+pub fn command_backup(args: &BackupArgs) -> Result<(), std::io::Error> {
+    let mut config = config::get_config(&args.config_path)?;
+    let (source_path, dest_path) = check_directories(&mut config)?;
+    let file_config = &config.file_config;
+
+    if args.realtime {
+        realtime_backup(&source_path, &dest_path, file_config)
+    } else if let Some(interval) = args.interval {
+        timed_backup(&source_path, &dest_path, file_config, interval)
+    } else {
+        backup_files(&source_path, &dest_path, file_config)
     }
 }

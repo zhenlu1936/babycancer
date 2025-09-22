@@ -35,12 +35,6 @@ fn main() {
             Some(Commands::Reset(args)) => config::command_reset(args)
                 .unwrap_or_else(|err| eprintln!("Reset command failed: {}", err)),
 
-            Some(Commands::TimedBackup(args)) => backup::command_timed_backup(args)
-                .unwrap_or_else(|err| eprintln!("Timed backup command failed: {}", err)),
-
-            Some(Commands::RealtimeBackup(args)) => backup::command_realtime_backup(args)
-                .unwrap_or_else(|err| eprintln!("Realtime backup command failed: {}", err)),
-
             None => {}
         }
     }
