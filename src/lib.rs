@@ -18,3 +18,4 @@ pub use std::os::unix::fs::FileTypeExt;
 pub use std::os::unix::fs::MetadataExt;
 pub use std::path::{Path, PathBuf};
 pub use toml_edit::{DocumentMut, Item, Table};
+pub use users::get_user_by_uid;

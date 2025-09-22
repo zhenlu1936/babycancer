@@ -4,6 +4,7 @@ use crate::*;
 pub struct PathConfig {
     pub source_path: String,
     pub dest_path: String,
+    pub tar: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -35,6 +36,10 @@ pub struct ConfigArgs {
     #[arg(short, long, value_name = "DIR")]
     dest_path: Option<PathBuf>,
 
+    /// Use tar for backup
+    #[arg(short, long)]
+    tar: bool,
+
     /// Set a custom file pattern
     #[arg(short, long, value_name = "REGEX")]
     file_name: Option<String>,
@@ -58,10 +63,6 @@ pub struct ConfigArgs {
     /// Output config file content
     #[arg(short, long)]
     output: bool,
-
-    /// Reset config to default
-    #[arg(short, long)]
-    reset: bool,
 }
 
 #[derive(Parser)]
@@ -98,6 +99,10 @@ pub struct ResetArgs {
     #[arg(short, long)]
     user: bool,
 
+    /// Use tar for backup
+    #[arg(short, long)]
+    tar: bool,
+
     /// Reset all configurations
     #[arg(short, long)]
     all: bool,
@@ -129,6 +134,7 @@ fn initialize_config(path: &Path) {
             .join(".config/babycancer/dest")
             .to_string_lossy()
             .to_string(),
+        tar: false,
     };
 
     let file_config = FileConfig {
@@ -190,6 +196,11 @@ fn update_config(config: &mut Config, args: &ConfigArgs) {
         println!("Destination directory set to {}", path_config.dest_path);
     }
 
+    if let Some(tar) = Some(args.tar) {
+        path_config.tar = tar;
+        println!("Use tar for backup: {}", path_config.tar);
+    }
+
     if let Some(path) = args.file_path.as_deref() {
         file_config.file_path = Some(path.to_string());
         println!(
@@ -242,6 +253,7 @@ fn update_config_file(path: &Path, config: &Config) {
     let mut path_table = Table::new();
     path_table["source_path"] = Item::Value(path_config.source_path.clone().into());
     path_table["dest_path"] = Item::Value(path_config.dest_path.clone().into());
+    path_table["tar"] = Item::Value(path_config.tar.into());
     doc["path_config"] = Item::Table(path_table);
 
     let mut file_table = Table::new();
@@ -309,27 +321,6 @@ fn output_config(path: &PathBuf) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Error> {
-    let mut config_file = check_config_file(config_path)?;
-    read_config(&mut config_file)
-}
-
-pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
-    let config_path = check_config_file(&args.config_path)?;
-
-    let mut config = read_config(&config_path)?;
-
-    update_config(&mut config, &args);
-
-    update_config_file(&config_path, &config);
-
-    if args.output {
-        output_config(&config_path)?;
-    }
-
-    Ok(())
-}
-
 fn reset_config(config: &mut Config, args: &ResetArgs) {
     let path_config = &mut config.path_config;
     let file_config = &mut config.file_config;
@@ -350,6 +341,11 @@ fn reset_config(config: &mut Config, args: &ResetArgs) {
             .to_string_lossy()
             .to_string();
         println!("Destination directory set to {}", path_config.dest_path);
+    }
+
+    if args.tar || args.all {
+        path_config.tar = false;
+        println!("Use tar for backup reset to {}", path_config.tar);
     }
 
     if args.file_path || args.all {
@@ -376,6 +372,27 @@ fn reset_config(config: &mut Config, args: &ResetArgs) {
         file_config.user = None;
         println!("User reset");
     }
+}
+
+pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Error> {
+    let mut config_file = check_config_file(config_path)?;
+    read_config(&mut config_file)
+}
+
+pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
+    let config_path = check_config_file(&args.config_path)?;
+
+    let mut config = read_config(&config_path)?;
+
+    update_config(&mut config, &args);
+
+    update_config_file(&config_path, &config);
+
+    if args.output {
+        output_config(&config_path)?;
+    }
+
+    Ok(())
 }
 
 pub fn command_reset(args: &ResetArgs) -> Result<(), std::io::Error> {

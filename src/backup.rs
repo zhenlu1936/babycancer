@@ -16,7 +16,7 @@ pub struct BackupArgs {
 }
 
 #[derive(Parser)]
-pub struct TimerArgs {
+pub struct TimedBackupArgs {
     /// Interval in seconds to run the backup command
     #[arg(short, long, value_name = "SECONDS", default_value_t = 3600)]
     interval: u64,
@@ -27,7 +27,7 @@ pub struct TimerArgs {
 }
 
 #[derive(Parser)]
-pub struct RealtimeArgs {
+pub struct RealtimeBackupArgs {
     /// Set a custom config file
     #[arg(short, long, value_name = "FILE")]
     config_path: Option<PathBuf>,
@@ -81,10 +81,11 @@ fn check_file_properties(
         }
     }
 
-    if let Some(ref user) = file_config.user {
-        if !user.is_empty() {
-            let owner = metadata.uid();
-            if owner.to_string() != *user {
+    if let Some(ref user_name) = file_config.user {
+        if !user_name.is_empty() {
+            let owner_uid = metadata.uid();
+            let owner_name = get_user_by_uid(owner_uid).map(|u| u.name().to_string_lossy().into_owned());
+            if owner_name != Some(user_name.clone()) {
                 return false;
             }
         }
@@ -317,7 +318,7 @@ pub fn command_backup(args: &BackupArgs) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn command_timer(args: &TimerArgs) -> Result<(), std::io::Error> {
+pub fn command_timed_backup(args: &TimedBackupArgs) -> Result<(), std::io::Error> {
     let interval = args.interval;
     if interval == 0 {
         eprintln!("Interval must be greater than 0.");
@@ -327,14 +328,13 @@ pub fn command_timer(args: &TimerArgs) -> Result<(), std::io::Error> {
         ));
     }
 
+    let mut config = config::get_config(&args.config_path)?;
+    let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
+
     println!("Starting timer with interval of {} seconds...", interval);
     loop {
         let start = std::time::Instant::now();
         println!("Running timer backup...");
-
-        let mut config = config::get_config(&args.config_path)?;
-
-        let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;
 
         if let Err(err) = backup_files(&source_path, &dest_path, &config.file_config) {
             eprintln!("Backup command failed: {}", err);
@@ -348,7 +348,7 @@ pub fn command_timer(args: &TimerArgs) -> Result<(), std::io::Error> {
     }
 }
 
-pub fn command_realtime(args: &RealtimeArgs) -> Result<(), std::io::Error> {
+pub fn command_realtime_backup(args: &RealtimeBackupArgs) -> Result<(), std::io::Error> {
     let mut config = config::get_config(&args.config_path)?;
 
     let (source_path, dest_path) = check_directories(&mut config, &None, &None)?;

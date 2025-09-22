@@ -25,9 +25,9 @@ pub enum Commands {
     /// Reset configuration file to default values
     Reset(config::ResetArgs),
 
-    /// Set up a timer to run backup at regular intervals
-    Timer(backup::TimerArgs),
+    /// Scheduled backup
+    TimedBackup(backup::TimedBackupArgs),
 
     /// Real-time backup
-    Realtime(backup::RealtimeArgs),
+    RealtimeBackup(backup::RealtimeBackupArgs),
 }
