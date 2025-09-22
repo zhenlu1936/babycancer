@@ -4,7 +4,6 @@ use crate::*;
 pub struct PathConfig {
     pub source_path: String,
     pub dest_path: String,
-    pub tar: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -17,9 +16,201 @@ pub struct FileConfig {
 }
 
 #[derive(Deserialize, Serialize)]
+pub struct OutputConfig {
+    pub tar: bool,
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Config {
     pub path_config: PathConfig,
     pub file_config: FileConfig,
+    pub output_config: OutputConfig,
+}
+
+trait ValidConfig {
+    fn initialize() -> Self;
+    fn table(&self) -> Table;
+    fn update(&mut self, args: &ConfigArgs);
+    fn reset(&mut self, args: &ResetArgs);
+}
+
+impl ValidConfig for PathConfig {
+    fn initialize() -> Self {
+        PathConfig {
+            source_path: dirs::home_dir()
+                .unwrap()
+                .join(".config/babycancer/source")
+                .to_string_lossy()
+                .to_string(),
+            dest_path: dirs::home_dir()
+                .unwrap()
+                .join(".config/babycancer/dest")
+                .to_string_lossy()
+                .to_string(),
+        }
+    }
+
+    fn table(&self) -> Table {
+        let mut table = Table::new();
+        table["source_path"] = Item::Value(self.source_path.clone().into());
+        table["dest_path"] = Item::Value(self.dest_path.clone().into());
+        table
+    }
+
+    fn update(&mut self, args: &ConfigArgs) {
+        if let Some(path) = args.source_path.as_deref() {
+            self.source_path = path.to_string_lossy().to_string();
+            println!("Source directory set to {}", self.source_path);
+        }
+
+        if let Some(path) = args.dest_path.as_deref() {
+            self.dest_path = path.to_string_lossy().to_string();
+            println!("Destination directory set to {}", self.dest_path);
+        }
+    }
+
+    fn reset(&mut self, args: &ResetArgs) {
+        if args.source_path || args.all {
+            self.source_path = dirs::home_dir()
+                .unwrap()
+                .join(".config/babycancer/source")
+                .to_string_lossy()
+                .to_string();
+            println!("Source directory reset to {}", self.source_path);
+        }
+
+        if args.dest_path || args.all {
+            self.dest_path = dirs::home_dir()
+                .unwrap()
+                .join(".config/babycancer/dest")
+                .to_string_lossy()
+                .to_string();
+            println!("Destination directory set to {}", self.dest_path);
+        }
+    }
+}
+
+impl ValidConfig for FileConfig {
+    fn initialize() -> Self {
+        FileConfig {
+            file_path: None,
+            file_name: None,
+            date: None,
+            size: None,
+            user: None,
+        }
+    }
+
+    fn table(&self) -> Table {
+        let mut table = Table::new();
+        table["file_path"] = match &self.file_path {
+            Some(path) => Item::Value(path.clone().into()),
+            None => Item::None,
+        };
+        table["file_name"] = match &self.file_name {
+            Some(name) => Item::Value(name.clone().into()),
+            None => Item::None,
+        };
+        table["date"] = match &self.date {
+            Some(date) => Item::Value(date.clone().into()),
+            None => Item::None,
+        };
+        table["size"] = match self.size {
+            Some(size) => Item::Value(size.into()),
+            None => Item::None,
+        };
+        table["user"] = match &self.user {
+            Some(user) => Item::Value(user.clone().into()),
+            None => Item::None,
+        };
+        table
+    }
+
+    fn update(&mut self, args: &ConfigArgs) {
+        if let Some(path) = args.file_path.as_deref() {
+            self.file_path = Some(path.to_string());
+            println!(
+                "File path set to {}",
+                self.file_path.as_ref().unwrap()
+            );
+        }
+
+        if let Some(name) = args.file_name.as_deref() {
+            self.file_name = Some(name.to_owned());
+            println!(
+                "File name set to {}",
+                self.file_name.as_ref().unwrap()
+            );
+        }
+
+        if let Some(date) = args.date.as_deref() {
+            self.date = Some(date.to_owned());
+            println!("Date set to {}", self.date.as_ref().unwrap());
+        }
+
+        if let Some(size) = args.size {
+            self.size = Some(size);
+            println!("Size set to {}", self.size.unwrap());
+        }
+
+        if let Some(user) = args.user.as_deref() {
+            self.user = Some(user.to_owned());
+            println!("User set to {}", self.user.as_ref().unwrap());
+        }
+    }
+
+    fn reset(&mut self, args: &ResetArgs) {
+        if args.file_path || args.all {
+            self.file_path = None;
+            println!("File path reset");
+        }
+
+        if args.file_name || args.all {
+            self.file_name = None;
+            println!("File name reset");
+        }
+
+        if args.date || args.all {
+            self.date = None;
+            println!("Date reset");
+        }
+
+        if args.size || args.all {
+            self.size = None;
+            println!("Size reset");
+        }
+
+        if args.user || args.all {
+            self.user = None;
+            println!("User reset");
+        }
+    }
+}
+
+impl ValidConfig for OutputConfig {
+    fn initialize() -> Self {
+        OutputConfig { tar: false }
+    }
+
+    fn table(&self) -> Table {
+        let mut table = Table::new();
+        table["tar"] = Item::Value(self.tar.into());
+        table
+    }
+    
+    fn update(&mut self, args: &ConfigArgs) {
+        if let Some(tar) = args.tar {
+            self.tar = tar;
+            println!("Use tar for backup: {}", self.tar);
+        }
+    }
+
+    fn reset(&mut self, args: &ResetArgs) {
+        if args.tar || args.all {
+            self.tar = false;
+            println!("Use tar reset");
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -35,10 +226,6 @@ pub struct ConfigArgs {
     /// Set a custom backup destination
     #[arg(short, long, value_name = "DIR")]
     dest_path: Option<PathBuf>,
-
-    /// Use tar for backup
-    #[arg(short, long)]
-    tar: bool,
 
     /// Set a custom file pattern
     #[arg(short, long, value_name = "REGEX")]
@@ -59,6 +246,10 @@ pub struct ConfigArgs {
     /// Set a custom user
     #[arg(short, long, value_name = "USER")]
     user: Option<String>,
+
+    /// Use tar for backup
+    #[arg(short, long)]
+    tar: Option<bool>,
 
     /// Output config file content
     #[arg(short, long)]
@@ -123,31 +314,14 @@ fn initialize_config(path: &Path) {
         err
     });
 
-    let path_config = PathConfig {
-        source_path: dirs::home_dir()
-            .unwrap()
-            .join(".config/babycancer/source")
-            .to_string_lossy()
-            .to_string(),
-        dest_path: dirs::home_dir()
-            .unwrap()
-            .join(".config/babycancer/dest")
-            .to_string_lossy()
-            .to_string(),
-        tar: false,
-    };
-
-    let file_config = FileConfig {
-        file_path: None,
-        file_name: None,
-        date: None,
-        size: None,
-        user: None,
-    };
+    let path_config = PathConfig::initialize();
+    let file_config = FileConfig::initialize();
+    let output_config = OutputConfig::initialize();
 
     let config = Config {
         path_config,
         file_config,
+        output_config,
     };
 
     update_config_file(path, &config);
@@ -185,52 +359,11 @@ fn check_config_file(config_path: &Option<PathBuf>) -> Result<PathBuf, std::io::
 fn update_config(config: &mut Config, args: &ConfigArgs) {
     let path_config = &mut config.path_config;
     let file_config = &mut config.file_config;
+    let output_config = &mut config.output_config;
 
-    if let Some(path) = args.source_path.as_deref() {
-        path_config.source_path = path.to_string_lossy().to_string();
-        println!("Source directory set to {}", path_config.source_path);
-    }
-
-    if let Some(path) = args.dest_path.as_deref() {
-        path_config.dest_path = path.to_string_lossy().to_string();
-        println!("Destination directory set to {}", path_config.dest_path);
-    }
-
-    if let Some(tar) = Some(args.tar) {
-        path_config.tar = tar;
-        println!("Use tar for backup: {}", path_config.tar);
-    }
-
-    if let Some(path) = args.file_path.as_deref() {
-        file_config.file_path = Some(path.to_string());
-        println!(
-            "File path set to {}",
-            file_config.file_path.as_ref().unwrap()
-        );
-    }
-
-    if let Some(name) = args.file_name.as_deref() {
-        file_config.file_name = Some(name.to_owned());
-        println!(
-            "File name set to {}",
-            file_config.file_name.as_ref().unwrap()
-        );
-    }
-
-    if let Some(date) = args.date.as_deref() {
-        file_config.date = Some(date.to_owned());
-        println!("Date set to {}", file_config.date.as_ref().unwrap());
-    }
-
-    if let Some(size) = args.size {
-        file_config.size = Some(size);
-        println!("Size set to {}", file_config.size.unwrap());
-    }
-
-    if let Some(user) = args.user.as_deref() {
-        file_config.user = Some(user.to_owned());
-        println!("User set to {}", file_config.user.as_ref().unwrap());
-    }
+    path_config.update(args);
+    file_config.update(args);
+    output_config.update(args);
 }
 
 fn update_config_file(path: &Path, config: &Config) {
@@ -248,45 +381,13 @@ fn update_config_file(path: &Path, config: &Config) {
 
     let path_config = &config.path_config;
     let file_config = &config.file_config;
+    let output_config = &config.output_config;
+
     let mut doc: DocumentMut = "".to_string().parse::<DocumentMut>().unwrap();
 
-    let mut path_table = Table::new();
-    path_table["source_path"] = Item::Value(path_config.source_path.clone().into());
-    path_table["dest_path"] = Item::Value(path_config.dest_path.clone().into());
-    path_table["tar"] = Item::Value(path_config.tar.into());
-    doc["path_config"] = Item::Table(path_table);
-
-    let mut file_table = Table::new();
-    file_table["file_path"] = Item::Value(
-        file_config
-            .file_path
-            .clone()
-            .unwrap_or_else(|| "".to_string())
-            .into(),
-    );
-    file_table["file_name"] = Item::Value(
-        file_config
-            .file_name
-            .clone()
-            .unwrap_or_else(|| "".to_string())
-            .into(),
-    );
-    file_table["date"] = Item::Value(
-        file_config
-            .date
-            .clone()
-            .unwrap_or_else(|| "".to_string())
-            .into(),
-    );
-    file_table["size"] = Item::Value(file_config.size.clone().unwrap_or(0).into());
-    file_table["user"] = Item::Value(
-        file_config
-            .user
-            .clone()
-            .unwrap_or_else(|| "".to_string())
-            .into(),
-    );
-    doc["file_config"] = Item::Table(file_table);
+    doc["path_config"] = Item::Table(path_config.table());
+    doc["file_config"] = Item::Table(file_config.table());
+    doc["output_config"] = Item::Table(output_config.table());
 
     file.write_all(doc.to_string().as_bytes()).unwrap();
 }
@@ -306,7 +407,7 @@ fn read_config(path: &PathBuf) -> Result<Config, std::io::Error> {
     Ok(config)
 }
 
-fn output_config(path: &PathBuf) -> Result<(), std::io::Error> {
+fn print_config(path: &PathBuf) -> Result<(), std::io::Error> {
     let content = fs::read_to_string(path).map_err(|err| {
         eprintln!("Failed to read {}: {}", path.display(), err);
         err
@@ -324,54 +425,11 @@ fn output_config(path: &PathBuf) -> Result<(), std::io::Error> {
 fn reset_config(config: &mut Config, args: &ResetArgs) {
     let path_config = &mut config.path_config;
     let file_config = &mut config.file_config;
+    let output_config = &mut config.output_config;
 
-    if args.source_path || args.all {
-        path_config.source_path = dirs::home_dir()
-            .unwrap()
-            .join(".config/babycancer/source")
-            .to_string_lossy()
-            .to_string();
-        println!("Source directory reset to {}", path_config.source_path);
-    }
-
-    if args.dest_path || args.all {
-        path_config.dest_path = dirs::home_dir()
-            .unwrap()
-            .join(".config/babycancer/dest")
-            .to_string_lossy()
-            .to_string();
-        println!("Destination directory set to {}", path_config.dest_path);
-    }
-
-    if args.tar || args.all {
-        path_config.tar = false;
-        println!("Use tar for backup reset to {}", path_config.tar);
-    }
-
-    if args.file_path || args.all {
-        file_config.file_path = None;
-        println!("File path reset");
-    }
-
-    if args.file_name || args.all {
-        file_config.file_name = None;
-        println!("File name reset");
-    }
-
-    if args.date || args.all {
-        file_config.date = None;
-        println!("Date reset");
-    }
-
-    if args.size || args.all {
-        file_config.size = None;
-        println!("Size reset");
-    }
-
-    if args.user || args.all {
-        file_config.user = None;
-        println!("User reset");
-    }
+    path_config.reset(args);
+    file_config.reset(args);
+    output_config.reset(args);
 }
 
 pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Error> {
@@ -389,7 +447,7 @@ pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
     update_config_file(&config_path, &config);
 
     if args.output {
-        output_config(&config_path)?;
+        print_config(&config_path)?;
     }
 
     Ok(())

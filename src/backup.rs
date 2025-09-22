@@ -179,9 +179,20 @@ fn backup_files(
     source_path: &PathBuf,
     dest_path: &PathBuf,
     file_config: &config::FileConfig,
+    output_config: &config::OutputConfig,
 ) -> Result<(), std::io::Error> {
     println!("Backing up files...");
-    copy_dir_recursive(source_path, source_path, dest_path, file_config)?;
+    if output_config.tar {
+        let tar_path = dest_path.join("backup.tar");
+        let tar_file = File::create(&tar_path)?;
+        let mut tar_builder = tar::Builder::new(tar_file);
+        tar_builder.append_dir_all(".", source_path)?;
+        tar_builder.finish()?;
+        println!("Created tar archive at {:?}", tar_path);
+        return Ok(());
+    } else {
+        copy_dir_recursive(source_path, source_path, dest_path, file_config)?;
+    }
     println!("Backup completed successfully.");
     Ok(())
 }
@@ -245,6 +256,7 @@ fn timed_backup(
     source_path: &PathBuf,
     dest_path: &PathBuf,
     file_config: &config::FileConfig,
+    output_config: &config::OutputConfig,
     interval: u64,
 ) -> Result<(), std::io::Error> {
     if interval == 0 {
@@ -260,7 +272,7 @@ fn timed_backup(
         let start = std::time::Instant::now();
         println!("Running timer backup...");
 
-        if let Err(err) = backup_files(&source_path, &dest_path, file_config) {
+        if let Err(err) = backup_files(&source_path, &dest_path, file_config, output_config) {
             eprintln!("Backup command failed: {}", err);
         }
 
@@ -276,6 +288,7 @@ fn realtime_backup(
     source_path: &PathBuf,
     dest_path: &PathBuf,
     file_config: &config::FileConfig,
+    output_config: &config::OutputConfig,
 ) -> Result<(), std::io::Error> {
     println!("Starting real-time backup...");
 
@@ -298,7 +311,8 @@ fn realtime_backup(
         match rx.recv() {
             Ok(event) => {
                 println!("Change detected: {:?}", event);
-                if let Err(err) = backup_files(&source_path, &dest_path, file_config) {
+                if let Err(err) = backup_files(&source_path, &dest_path, file_config, output_config)
+                {
                     eprintln!("Backup command failed: {}", err);
                 }
             }
@@ -311,12 +325,19 @@ pub fn command_backup(args: &BackupArgs) -> Result<(), std::io::Error> {
     let mut config = config::get_config(&args.config_path)?;
     let (source_path, dest_path) = check_directories(&mut config)?;
     let file_config = &config.file_config;
+    let output_config = &config.output_config;
 
     if args.realtime {
-        realtime_backup(&source_path, &dest_path, file_config)
+        realtime_backup(&source_path, &dest_path, file_config, output_config)
     } else if let Some(interval) = args.interval {
-        timed_backup(&source_path, &dest_path, file_config, interval)
+        timed_backup(
+            &source_path,
+            &dest_path,
+            file_config,
+            output_config,
+            interval,
+        )
     } else {
-        backup_files(&source_path, &dest_path, file_config)
+        backup_files(&source_path, &dest_path, file_config, output_config)
     }
 }
