@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod command;
 pub mod config;
+pub mod app;
 
 pub use chrono::NaiveDate;
 pub use clap::{Parser, Subcommand};

@@ -23,4 +23,6 @@ target
 # hjj's own
 test.*
 test*
+!tests/
+!test.rs
 .DS_Store
