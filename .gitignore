@@ -21,8 +21,6 @@ target
 #.idea/
 
 # hjj's own
-test.*
-test*
 !tests/
 !test.rs
-.DS_Store
+.DS_Stor

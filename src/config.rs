@@ -1,4 +1,5 @@
 use crate::*;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Deserialize, Serialize)]
 pub struct PathConfig {
@@ -25,6 +26,24 @@ pub struct Config {
     pub path_config: PathConfig,
     pub file_config: FileConfig,
     pub output_config: OutputConfig,
+}
+
+// In-process retention for the last used config path. This lets commands like
+// `backup` reuse a path previously set via `config -c <path>` in the same REPL/session.
+static CURRENT_CONFIG_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+
+fn config_path_cell() -> &'static Mutex<Option<PathBuf>> {
+    CURRENT_CONFIG_PATH.get_or_init(|| Mutex::new(None))
+}
+
+fn set_current_config_path(path: PathBuf) {
+    let mut guard = config_path_cell().lock().unwrap();
+    *guard = Some(path);
+}
+
+fn get_current_config_path() -> Option<PathBuf> {
+    let guard = config_path_cell().lock().unwrap();
+    guard.clone()
 }
 
 trait ValidConfig {
@@ -328,30 +347,39 @@ fn initialize_config(path: &Path) {
 }
 
 fn check_config_file(config_path: &Option<PathBuf>) -> Result<PathBuf, std::io::Error> {
-    if let Some(path) = config_path.as_deref() {
-        match OpenOptions::new().read(true).write(true).open(path) {
-            Ok(_) => Ok(path.to_path_buf()),
+    // Precedence:
+    // 1) explicit path from args
+    // 2) last path set in this process via set_current_config_path
+    // 3) default path under ~/.config/rustbackup/config.toml
+    let chosen: Option<PathBuf> = match config_path {
+        Some(p) => Some(p.clone()),
+        None => get_current_config_path(),
+    };
+
+    if let Some(path) = chosen {
+        match OpenOptions::new().read(true).write(true).open(&path) {
+            Ok(_) => return Ok(path),
             Err(err) => {
                 eprintln!("Cannot open {}: {}", path.display(), err);
-                Err(err)
+                return Err(err);
             }
         }
-    } else {
-        let path = dirs::home_dir()
-            .unwrap()
-            .join(".config/rustbackup/config.toml");
+    }
 
-        match OpenOptions::new().read(true).write(true).open(path.clone()) {
-            Ok(_) => {
-                // Config file exists, read and parse it
-                Ok(path)
-            }
-            Err(_) => {
-                // Config file does not exist, create directories and initialize config
-                initialize_config(&path);
-                println!("Configuration file created at {}", path.display());
-                Ok(path)
-            }
+    // Fallback to default path
+    let path = dirs::home_dir()
+        .unwrap()
+        .join(".config/rustbackup/config.toml");
+
+    match OpenOptions::new().read(true).write(true).open(path.clone()) {
+        Ok(_) => {
+            Ok(path)
+        }
+        Err(_) => {
+            // Config file does not exist, create directories and initialize config
+            initialize_config(&path);
+            println!("Configuration file created at {}", path.display());
+            Ok(path)
         }
     }
 }
@@ -440,6 +468,11 @@ pub fn get_config(config_path: &Option<PathBuf>) -> Result<Config, std::io::Erro
 pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
     let config_path = check_config_file(&args.config_path)?;
 
+    // If the user explicitly provided a config path, retain it for this process.
+    if let Some(p) = &args.config_path {
+        set_current_config_path(p.clone());
+    }
+
     let mut config = read_config(&config_path)?;
 
     update_config(&mut config, &args);
@@ -455,6 +488,11 @@ pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
 
 pub fn command_reset(args: &ResetArgs) -> Result<(), std::io::Error> {
     let config_path = check_config_file(&args.config_path)?;
+
+    // If the user explicitly provided a config path, retain it for this process.
+    if let Some(p) = &args.config_path {
+        set_current_config_path(p.clone());
+    }
 
     let mut config = read_config(&config_path)?;
 

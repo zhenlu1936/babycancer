@@ -1,3 +1,3 @@
-rm testsrc/my_fifo
-rm testsrc/my_symlink
-rm testsrc/my_char_device
+rm tests/my_fifo
+rm tests/my_symlink
+# rm tests/my_char_device

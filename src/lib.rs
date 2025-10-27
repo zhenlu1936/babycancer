@@ -1,11 +1,10 @@
 pub mod backup;
 pub mod command;
 pub mod config;
-pub mod app;
+pub mod repl;
 
 pub use chrono::NaiveDate;
 pub use clap::{Parser, Subcommand};
-pub use command::{Args, Commands};
 pub use config::Config;
 pub use nix::sys::stat::{Mode, SFlag, mknod};
 pub use notify::Watcher;

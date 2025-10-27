@@ -1,0 +1,8 @@
+[path_config]
+source_path = "tests/example/src"
+dest_path = "tests/example/dest"
+
+[file_config]
+
+[output_config]
+tar = false
