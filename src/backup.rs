@@ -1,4 +1,7 @@
 use crate::*;
+use std::io::Read;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 
 #[derive(Parser)]
 pub struct BackupArgs {
@@ -75,6 +78,28 @@ fn check_file_properties(
     }
 
     true
+}
+
+fn calculate_crc32(file_path: &Path) -> Result<u32, std::io::Error> {
+    let mut file = File::open(file_path)?;
+    let mut buffer = [0; 8192];
+    let mut hasher = crc32fast::Hasher::new();
+    
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    
+    Ok(hasher.finalize())
+}
+
+fn verify_crc32(source_path: &Path, dest_path: &Path) -> Result<bool, std::io::Error> {
+    let source_crc = calculate_crc32(source_path)?;
+    let dest_crc = calculate_crc32(dest_path)?;
+    Ok(source_crc == dest_crc)
 }
 
 fn copy_dir_recursive(
@@ -158,7 +183,28 @@ fn copy_dir_recursive(
                 } else {
                     match fs::copy(&entry_path, &dest_path) {
                         Ok(_) => {
-                            println!("Copied {:?} to {:?}", &entry_path, &dest_path);
+                            // Verify CRC32 checksum
+                            match verify_crc32(&entry_path, &dest_path) {
+                                Ok(true) => {
+                                    let crc = calculate_crc32(&entry_path).unwrap_or(0);
+                                    println!("Copied {:?} to {:?} (CRC32: {:08x})", &entry_path, &dest_path, crc);
+                                }
+                                Ok(false) => {
+                                    eprintln!(
+                                        "CRC32 mismatch for {:?} - backup may be corrupted!",
+                                        &dest_path
+                                    );
+                                    fs::remove_file(&dest_path).ok();
+                                    continue;
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to verify CRC32 for {:?}: {}",
+                                        &dest_path, e
+                                    );
+                                    continue;
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!(
@@ -182,17 +228,35 @@ fn backup_files(
     output_config: &config::OutputConfig,
 ) -> Result<(), std::io::Error> {
     println!("Backing up files...");
+    
     if output_config.tar {
-        let tar_path = dest_path.join("backup.tar");
+        let tar_path = if output_config.gzip {
+            dest_path.join("backup.tar.gz")
+        } else {
+            dest_path.join("backup.tar")
+        };
+        
         let tar_file = File::create(&tar_path)?;
-        let mut tar_builder = tar::Builder::new(tar_file);
-        tar_builder.append_dir_all(".", source_path)?;
-        tar_builder.finish()?;
-        println!("Created tar archive at {:?}", tar_path);
+        
+        if output_config.gzip {
+            let encoder = GzEncoder::new(tar_file, Compression::default());
+            let mut tar_builder = tar::Builder::new(encoder);
+            tar_builder.follow_symlinks(false);
+            tar_builder.append_dir_all(".", source_path)?;
+            tar_builder.finish()?;
+            println!("Created gzipped tar archive at {:?}", tar_path);
+        } else {
+            let mut tar_builder = tar::Builder::new(tar_file);
+            tar_builder.follow_symlinks(false);
+            tar_builder.append_dir_all(".", source_path)?;
+            tar_builder.finish()?;
+            println!("Created tar archive at {:?}", tar_path);
+        }
         return Ok(());
     } else {
         copy_dir_recursive(source_path, source_path, dest_path, file_config)?;
     }
+    
     println!("Backup completed successfully.");
     Ok(())
 }

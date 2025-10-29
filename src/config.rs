@@ -19,6 +19,7 @@ pub struct FileConfig {
 #[derive(Deserialize, Serialize)]
 pub struct OutputConfig {
     pub tar: bool,
+    pub gzip: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -216,12 +217,16 @@ impl ValidConfig for FileConfig {
 
 impl ValidConfig for OutputConfig {
     fn initialize() -> Self {
-        OutputConfig { tar: false }
+        OutputConfig { 
+            tar: false,
+            gzip: false,
+        }
     }
 
     fn table(&self) -> Table {
         let mut table = Table::new();
         table["tar"] = Item::Value(self.tar.into());
+        table["gzip"] = Item::Value(self.gzip.into());
         table
     }
     
@@ -230,6 +235,12 @@ impl ValidConfig for OutputConfig {
             self.tar = tar;
             println!("Use tar for backup: {}", self.tar);
         }
+        
+        if let Some(gzip) = args.gzip {
+            self.gzip = gzip;
+            println!("Use gzip compression: {}", self.gzip);
+        }
+        
         Ok(())
     }
 
@@ -237,6 +248,11 @@ impl ValidConfig for OutputConfig {
         if args.tar || args.all {
             self.tar = false;
             println!("Use tar reset");
+        }
+        
+        if args.gzip || args.all {
+            self.gzip = false;
+            println!("Use gzip reset");
         }
     }
 }
@@ -278,6 +294,10 @@ pub struct ConfigArgs {
     /// Use tar for backup
     #[arg(short, long)]
     tar: Option<bool>,
+
+    /// Use gzip compression
+    #[arg(short, long)]
+    gzip: Option<bool>,
 
     /// Output config file content
     #[arg(short, long)]
@@ -321,6 +341,10 @@ pub struct ResetArgs {
     /// Use tar for backup
     #[arg(short, long)]
     tar: bool,
+
+    /// Use gzip compression
+    #[arg(short, long)]
+    gzip: bool,
 
     /// Reset all configurations
     #[arg(short, long)]

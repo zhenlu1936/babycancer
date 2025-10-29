@@ -1,5 +1,6 @@
 use babycancer::*;
 use std::fs;
+use std::io::Read;
 
 // Test setup helper to ensure clean config state
 fn setup_clean_config(config_name: &str) -> String {
@@ -10,7 +11,8 @@ dest_path = "tests/example/dest"
 [file_config]
 
 [output_config]
-tar = false"#;
+tar = false
+gzip = false"#;
     
     let config_path = format!("tests/example/{}.toml", config_name);
     fs::write(&config_path, config_content).expect("Failed to write test config");
@@ -387,5 +389,67 @@ fn test_reconfig_after_partial_reset() {
         assert!(repl::execute_line("config --user newadmin".to_string()).is_ok());
         assert!(repl::execute_line("config --file-name '.*\\.txt'".to_string()).is_ok());
         assert!(repl::execute_line("backup".to_string()).is_ok());
+    });
+}
+
+#[test]
+fn test_gzip_toggle() {
+    with_clean_config("test_gzip_toggle", |config_path| {
+        assert!(repl::execute_line(format!("config -c {} --gzip true", config_path)).is_ok());
+        assert!(repl::execute_line("config --gzip false".to_string()).is_ok());
+        assert!(repl::execute_line("config --gzip true".to_string()).is_ok());
+        assert!(repl::execute_line("reset --gzip".to_string()).is_ok());
+    });
+}
+
+#[test]
+fn test_gzip_with_tar() {
+    with_clean_config("test_gzip_tar", |config_path| {
+        assert!(repl::execute_line(format!("config -c {} --tar true --gzip true", config_path)).is_ok());
+        assert!(repl::execute_line("backup".to_string()).is_ok());
+        
+        // Verify tar.gz file exists
+        let dest = PathBuf::from("tests/example/dest");
+        assert!(dest.join("backup.tar.gz").exists());
+        
+        // Verify it's a valid gzip file
+        let file = fs::File::open(dest.join("backup.tar.gz")).expect("Failed to open backup.tar.gz");
+        let mut gz = flate2::read::GzDecoder::new(file);
+        let mut contents = Vec::new();
+        gz.read_to_end(&mut contents).expect("Failed to decompress gzip file");
+        assert!(contents.len() > 0, "Gzipped tar archive should not be empty");
+    });
+}
+
+#[test]
+fn test_gzip_without_tar() {
+    with_clean_config("test_gzip_no_tar", |config_path| {
+        // Gzip without tar should still work (files just copied normally)
+        assert!(repl::execute_line(format!("config -c {} --gzip true", config_path)).is_ok());
+        assert!(repl::execute_line("backup".to_string()).is_ok());
+    });
+}
+
+#[test]
+fn test_tar_without_gzip() {
+    with_clean_config("test_tar_no_gzip", |config_path| {
+        assert!(repl::execute_line(format!("config -c {} --tar true --gzip false", config_path)).is_ok());
+        assert!(repl::execute_line("backup".to_string()).is_ok());
+        
+        // Verify only .tar file exists (not .tar.gz)
+        let dest = PathBuf::from("tests/example/dest");
+        assert!(dest.join("backup.tar").exists());
+        assert!(!dest.join("backup.tar.gz").exists());
+    });
+}
+
+#[test]
+fn test_gzip_reset_all() {
+    with_clean_config("test_gzip_reset_all", |config_path| {
+        assert!(repl::execute_line(format!("config -c {} --gzip true --tar true", config_path)).is_ok());
+        assert!(repl::execute_line("reset --all".to_string()).is_ok());
+        
+        // Verify config was reset
+        assert!(repl::execute_line("config --output".to_string()).is_ok());
     });
 }

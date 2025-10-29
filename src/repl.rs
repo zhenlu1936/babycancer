@@ -2,7 +2,7 @@ use crate::*;
 
 pub fn run() {
     loop {
-        println!("babycancer> ");
+        print!("babycancer> ");
 
         let line = match get_line() {
             Ok(l) => l,
