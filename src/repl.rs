@@ -2,7 +2,7 @@ use crate::*;
 
 pub fn run() {
     loop {
-        print!("babycancer> ");
+        println!("babycancer> ");
 
         let line = match get_line() {
             Ok(l) => l,
@@ -32,8 +32,8 @@ pub fn execute_line(line: String) -> Result<(), Box<dyn std::error::Error>> {
             use clap::error::ErrorKind;
             match e.kind() {
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
-                    // Print once here and treat as success so the caller doesn't print again.
-                    let _ = e.print();
+                    // Print help/version using println! and treat as success
+                    println!("{}", e);
                     return Ok(());
                 }
                 _ => {

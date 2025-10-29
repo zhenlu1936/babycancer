@@ -49,7 +49,7 @@ fn get_current_config_path() -> Option<PathBuf> {
 trait ValidConfig {
     fn initialize() -> Self;
     fn table(&self) -> Table;
-    fn update(&mut self, args: &ConfigArgs);
+    fn update(&mut self, args: &ConfigArgs) -> Result<(), String>;
     fn reset(&mut self, args: &ResetArgs);
 }
 
@@ -76,7 +76,7 @@ impl ValidConfig for PathConfig {
         table
     }
 
-    fn update(&mut self, args: &ConfigArgs) {
+    fn update(&mut self, args: &ConfigArgs) -> Result<(), String> {
         if let Some(path) = args.source_path.as_deref() {
             self.source_path = path.to_string_lossy().to_string();
             println!("Source directory set to {}", self.source_path);
@@ -86,6 +86,8 @@ impl ValidConfig for PathConfig {
             self.dest_path = path.to_string_lossy().to_string();
             println!("Destination directory set to {}", self.dest_path);
         }
+        
+        Ok(())
     }
 
     fn reset(&mut self, args: &ResetArgs) {
@@ -145,7 +147,7 @@ impl ValidConfig for FileConfig {
         table
     }
 
-    fn update(&mut self, args: &ConfigArgs) {
+    fn update(&mut self, args: &ConfigArgs) -> Result<(), String> {
         if let Some(path) = args.file_path.as_deref() {
             self.file_path = Some(path.to_string());
             println!(
@@ -155,6 +157,10 @@ impl ValidConfig for FileConfig {
         }
 
         if let Some(name) = args.file_name.as_deref() {
+            // Validate regex pattern before setting
+            if let Err(e) = Regex::new(name) {
+                return Err(format!("Invalid regex pattern '{}': {}", name, e));
+            }
             self.file_name = Some(name.to_owned());
             println!(
                 "File name set to {}",
@@ -176,6 +182,8 @@ impl ValidConfig for FileConfig {
             self.user = Some(user.to_owned());
             println!("User set to {}", self.user.as_ref().unwrap());
         }
+        
+        Ok(())
     }
 
     fn reset(&mut self, args: &ResetArgs) {
@@ -217,11 +225,12 @@ impl ValidConfig for OutputConfig {
         table
     }
     
-    fn update(&mut self, args: &ConfigArgs) {
+    fn update(&mut self, args: &ConfigArgs) -> Result<(), String> {
         if let Some(tar) = args.tar {
             self.tar = tar;
             println!("Use tar for backup: {}", self.tar);
         }
+        Ok(())
     }
 
     fn reset(&mut self, args: &ResetArgs) {
@@ -384,14 +393,16 @@ fn check_config_file(config_path: &Option<PathBuf>) -> Result<PathBuf, std::io::
     }
 }
 
-fn update_config(config: &mut Config, args: &ConfigArgs) {
+fn update_config(config: &mut Config, args: &ConfigArgs) -> Result<(), String> {
     let path_config = &mut config.path_config;
     let file_config = &mut config.file_config;
     let output_config = &mut config.output_config;
 
-    path_config.update(args);
-    file_config.update(args);
-    output_config.update(args);
+    path_config.update(args)?;
+    file_config.update(args)?;
+    output_config.update(args)?;
+    
+    Ok(())
 }
 
 fn update_config_file(path: &Path, config: &Config) {
@@ -475,7 +486,10 @@ pub fn command_config(args: &ConfigArgs) -> Result<(), std::io::Error> {
 
     let mut config = read_config(&config_path)?;
 
-    update_config(&mut config, &args);
+    if let Err(e) = update_config(&mut config, &args) {
+        eprintln!("Configuration error: {}", e);
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e));
+    }
 
     update_config_file(&config_path, &config);
 

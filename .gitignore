@@ -21,6 +21,7 @@ target
 #.idea/
 
 # hjj's own
+tests/example/dest/
 !tests/
 !test.rs
 .DS_Stor
