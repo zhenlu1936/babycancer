@@ -1,0 +1,397 @@
+% !TeX program = xelatex
+\documentclass{beamer}
+\usepackage{amsfonts,amsmath,amssymb,oldgerm}
+\usetheme{sintef}
+\usepackage{xeCJK}
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\small,
+  language=C++,
+  breaklines=true,
+  frame=single,
+}
+
+\usepackage[backend=biber,style=authoryear]{biblatex}
+\addbibresource{refs.bib} 
+
+\newcommand{\testcolor}[1]{\colorbox{#1}{\textcolor{#1}{test}}~\texttt{#1}}
+
+\usefonttheme[onlymath]{serif}
+
+\titlebackground*{assets/background}
+
+\newcommand{\hrefcol}[2]{\textcolor{cyan}{\href{#1}{#2}}}
+
+\title{BabyCancer: Rust文件备份工具}
+\author{黄家俊}
+\date{\today}
+
+\usepackage{xcolor}
+\colorlet{*}{black} 
+
+\begin{document}
+\maketitle
+
+\begin{frame}{目录}
+    \tableofcontents
+\end{frame}
+
+\section{项目概述}
+
+\begin{frame}{项目介绍}
+    \begin{itemize}
+        \item \textbf{项目名称}: BabyCancer
+        \item \textbf{编程语言}: Rust
+        \item \textbf{项目类型}: 命令行文件备份工具
+        \item \textbf{主要功能}: 
+        \begin{itemize}
+            \item 智能文件备份和过滤
+            \item 交互式REPL界面
+            \item 多种备份模式（定时、实时）
+            \item 压缩和归档支持
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\section{核心功能}
+
+\begin{frame}{文件过滤功能}
+    支持多种文件过滤条件：
+    \begin{itemize}
+        \item \textbf{文件名模式}: 使用正则表达式匹配文件名
+        \item \textbf{修改时间}: 根据文件修改日期过滤
+        \item \textbf{文件大小}: 按文件大小范围筛选
+        \item \textbf{用户权限}: 根据文件所有者过滤
+        \item \textbf{文件路径}: 指定特定路径下的文件
+    \end{itemize}
+    
+    \begin{block}{示例}
+        \texttt{config --file-name ".*\\.txt\$" --size 1024 --user admin}
+    \end{block}
+\end{frame}
+
+\begin{frame}[fragile]{备份模式}
+    \begin{columns}
+        \begin{column}{0.5\textwidth}
+            \textbf{普通备份}
+            \begin{itemize}
+                \item 一次性文件复制
+                \item 保持目录结构
+                \item 支持特殊文件类型
+            \end{itemize}
+            
+            \textbf{定时备份}
+            \begin{itemize}
+                \item 按指定间隔执行
+                \item 自动循环备份
+                \item 可配置间隔时间
+            \end{itemize}
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \textbf{实时备份}
+            \begin{itemize}
+                \item 文件系统监控
+                \item 变更触发备份
+                \item 即时数据保护
+            \end{itemize}
+            
+            \textbf{归档备份}
+            \begin{itemize}
+                \item TAR格式打包
+                \item GZIP压缩支持
+                \item 节省存储空间
+            \end{itemize}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+\section{技术实现}
+
+\begin{frame}[fragile]{系统架构}
+    \begin{center}
+        \begin{tabular}{|c|c|}
+        \hline
+        REPL模块 & 配置模块 \\
+        \hline
+        命令模块 & 备份模块 \\
+        \hline
+        \end{tabular}
+    \end{center}
+    
+    \begin{itemize}
+        \item \textbf{REPL模块}: 交互式命令解析
+        \item \textbf{配置模块}: TOML格式配置管理
+        \item \textbf{备份模块}: 核心备份逻辑实现
+        \item \textbf{命令模块}: CLI参数处理
+    \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{关键技术特性}
+    \textbf{数据完整性保证}
+    \begin{itemize}
+        \item CRC32校验和验证
+        \item 文件损坏检测
+        \item 自动清理损坏备份
+    \end{itemize}
+    
+    \textbf{特殊文件支持}
+    \begin{itemize}
+        \item 符号链接（不跟随）
+        \item FIFO管道文件
+        \item 字符/块设备文件
+        \item 完整元数据保留
+    \end{itemize}
+    
+    \textbf{配置持久化}
+    \begin{itemize}
+        \item 进程内配置路径保持
+        \item TOML格式配置存储
+        \item 灵活的重置机制
+    \end{itemize}
+\end{frame}
+
+\section{代码示例}
+
+\begin{frame}[fragile]{核心代码结构}
+\begin{lstlisting}[language=C++,basicstyle=\tiny]
+// 主要模块
+pub mod backup;    // 备份核心逻辑
+pub mod command;   // 命令行处理  
+pub mod config;    // 配置管理
+pub mod repl;      // 交互式界面
+
+// 命令定义
+#[derive(Subcommand)]
+pub enum Commands {
+    Backup(backup::BackupArgs),    // 执行备份
+    Config(config::ConfigArgs),    // 配置设置
+    Reset(config::ResetArgs),      // 重置配置
+    Exit,                          // 退出程序
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{配置系统实现}
+\begin{lstlisting}[language=C++,basicstyle=\tiny]
+#[derive(Deserialize, Serialize)]
+pub struct Config {
+    pub path_config: PathConfig,     // 路径配置
+    pub file_config: FileConfig,     // 文件过滤配置
+    pub output_config: OutputConfig, // 输出配置
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct OutputConfig {
+    pub tar: bool,    // 是否使用TAR打包
+    pub gzip: bool,   // 是否启用GZIP压缩
+}
+
+// 配置验证和更新机制
+trait ValidConfig {
+    fn update(&mut self, args: &ConfigArgs) -> Result<(), String>;
+    fn reset(&mut self, args: &ResetArgs);
+}
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{备份核心逻辑}
+\begin{lstlisting}[language=C++,basicstyle=\tiny]
+fn backup_files(
+    source_path: &PathBuf,
+    dest_path: &PathBuf, 
+    file_config: &FileConfig,
+    output_config: &OutputConfig,
+) -> Result<(), std::io::Error> {
+    if output_config.tar {
+        let tar_path = if output_config.gzip {
+            dest_path.join("backup.tar.gz")
+        } else {
+            dest_path.join("backup.tar") 
+        };
+        
+        if output_config.gzip {
+            let encoder = GzEncoder::new(tar_file, Compression::default());
+            let mut tar_builder = tar::Builder::new(encoder);
+            tar_builder.follow_symlinks(false);
+            tar_builder.append_dir_all(".", source_path)?;
+        }
+    }
+    Ok(())
+}
+\end{lstlisting}
+\end{frame}
+
+\section{测试与验证}
+
+\begin{frame}{测试覆盖}
+    \textbf{测试统计}: 31个测试用例，30个通过，1个忽略
+    
+    \begin{itemize}
+        \item \textbf{配置功能测试}
+        \begin{itemize}
+            \item 配置路径持久化
+            \item 参数验证和错误处理
+            \item 重置功能验证
+        \end{itemize}
+        
+        \item \textbf{备份功能测试}  
+        \begin{itemize}
+            \item 文件过滤逻辑
+            \item TAR/GZIP压缩
+            \item CRC32完整性验证
+        \end{itemize}
+        
+        \item \textbf{REPL界面测试}
+        \begin{itemize}
+            \item 命令解析
+            \item 交互式工作流程
+            \item 错误处理机制
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{测试示例}
+\begin{lstlisting}[language=C++,basicstyle=\tiny]
+#[test]
+fn test_gzip_with_tar() {
+    with_clean_config("test_gzip_tar", |config_path| {
+        // 配置TAR+GZIP备份
+        assert!(repl::execute_line(format!(
+            "config -c {} --tar true --gzip true", config_path
+        )).is_ok());
+        
+        // 执行备份
+        assert!(repl::execute_line("backup".to_string()).is_ok());
+        
+        // 验证压缩文件存在
+        let dest = PathBuf::from("tests/example/dest");
+        assert!(dest.join("backup.tar.gz").exists());
+        
+        // 验证GZIP格式正确性
+        let file = fs::File::open(dest.join("backup.tar.gz")).unwrap();
+        let mut gz = flate2::read::GzDecoder::new(file);
+        let mut contents = Vec::new();
+        gz.read_to_end(&mut contents).unwrap();
+        assert!(contents.len() > 0);
+    });
+}
+\end{lstlisting}
+\end{frame}
+
+\section{项目特色}
+
+\begin{frame}{技术亮点}
+    \begin{itemize}
+        \item \textbf{内存安全}: 使用Rust语言，零运行时开销
+        \item \textbf{并发安全}: 全局状态管理使用Mutex保护
+        \item \textbf{错误处理}: 完整的Result类型错误传播
+        \item \textbf{性能优化}: 
+        \begin{itemize}
+            \item 流式处理大文件
+            \item CRC32硬件加速
+            \item 增量备份支持
+        \end{itemize}
+        \item \textbf{跨平台}: 支持Unix系统特殊文件类型
+        \item \textbf{可扩展性}: 模块化设计，易于功能扩展
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{用户体验}
+    \textbf{交互式设计}
+    \begin{itemize}
+        \item REPL模式提供即时反馈
+        \item 配置状态实时显示
+        \item 友好的错误提示信息
+    \end{itemize}
+    
+    \textbf{灵活配置}
+    \begin{itemize}
+        \item 支持命令行参数和配置文件
+        \item 配置持久化和继承
+        \item 细粒度的重置控制
+    \end{itemize}
+    
+    \textbf{数据保护}
+    \begin{itemize}
+        \item 备份前数据完整性检查
+        \item 传输过程CRC32验证
+        \item 自动清理损坏文件
+    \end{itemize}
+\end{frame}
+
+\section{总结}
+
+\begin{frame}{项目成果}
+    \textbf{实现功能}
+    \begin{itemize}
+        \item $\checkmark$ 基础备份功能 (40分)
+        \item $\checkmark$ 自定义备份过滤 (+18分)  
+        \item $\checkmark$ 定时备份 (+10分)
+        \item $\checkmark$ 实时备份 (+15分)
+        \item $\checkmark$ 文件类型支持 (+10分)
+        \item $\checkmark$ 元数据支持 (+10分)
+        \item $\checkmark$ TAR打包 (+5分)
+        \item $\checkmark$ GZIP压缩 (+5分)
+    \end{itemize}
+    
+    \textbf{总计}: 113分
+    
+    \textbf{额外特性}
+    \begin{itemize}
+        \item CRC32数据完整性验证
+        \item 全面的测试覆盖 (31个测试)
+        \item 配置路径持久化机制
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{技术收获}
+    \begin{itemize}
+        \item \textbf{Rust系统编程}: 掌握了所有权系统和并发编程
+        \item \textbf{文件系统操作}: 深入理解Unix文件系统特性
+        \item \textbf{数据压缩}: 实现了TAR归档和GZIP压缩集成
+        \item \textbf{错误处理}: 构建了健壮的错误处理机制
+        \item \textbf{测试驱动开发}: 建立了完整的自动化测试体系
+        \item \textbf{配置管理}: 设计了灵活的配置系统架构
+        \item \textbf{命令行工具}: 创建了用户友好的CLI界面
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{未来展望}
+    \textbf{功能增强}
+    \begin{itemize}
+        \item 增量备份算法优化
+        \item 网络远程备份支持
+        \item 加密备份功能
+        \item GUI图形界面
+    \end{itemize}
+    
+    \textbf{性能优化}
+    \begin{itemize}
+        \item 并行文件处理
+        \item 内存映射大文件操作
+        \item 压缩算法选择
+    \end{itemize}
+    
+    \textbf{平台扩展}
+    \begin{itemize}
+        \item Windows平台支持
+        \item 容器化部署
+        \item WebAssembly移植
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \centering
+    \Huge 谢谢！
+    
+    \vspace{1cm}
+    
+    \Large 问题与讨论
+    
+    \vspace{1cm}
+    
+    \normalsize
+    \textbf{GitHub}: \href{https://github.com/zhenlu1936/babycancer}{github.com/zhenlu1936/babycancer}
+\end{frame}
+
+\end{document}
