@@ -1,0 +1,26 @@
+\frametitle{测试示例}
+\begin{lstlisting}[language=C++,basicstyle=\tiny]
+#[test]
+fn test_gzip_with_tar() {
+    with_clean_config("test_gzip_tar", |config_path| {
+        // 配置TAR+GZIP备份
+        assert!(repl::execute_line(format!(
+            "config -c {} --tar true --gzip true", config_path
+        )).is_ok());
+
+        // 执行备份
+        assert!(repl::execute_line("backup".to_string()).is_ok());
+
+        // 验证压缩文件存在
+        let dest = PathBuf::from("tests/example/dest");
+        assert!(dest.join("backup.tar.gz").exists());
+
+        // 验证GZIP格式正确性
+        let file = fs::File::open(dest.join("backup.tar.gz")).unwrap();
+        let mut gz = flate2::read::GzDecoder::new(file);
+        let mut contents = Vec::new();
+        gz.read_to_end(&mut contents).unwrap();
+        assert!(contents.len() > 0);
+    });
+}
+\end{lstlisting}
